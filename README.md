@@ -18,7 +18,7 @@ Abort trap: 6
 
 ## What we observe
 
-Protecting on Windows x64, then loading under a **.NET 10** host:
+Reproduced by this repository's own workflow on stock GitHub-hosted runners — see the run history. Protecting on Windows x64, then loading under a **.NET 10** host. Every protected variant was decompiled and verified to carry 184 `NoInlining` stubs; the unprotected controls carry 0.
 
 | variant | options | Windows | Linux | macOS |
 |---|---|---|---|---|
