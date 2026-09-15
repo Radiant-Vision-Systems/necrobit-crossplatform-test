@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net8.0</TargetFrameworks>
+    <Nullable>disable</Nullable>
+    <AssemblyName>HelloReactor</AssemblyName>
+    <RootNamespace>HelloReactor</RootNamespace>
+    <!-- No strong name: keeps the repro dependency-free. The original defect
+         reproduces with and without -snkeypair. -->
+  </PropertyGroup>
+</Project>

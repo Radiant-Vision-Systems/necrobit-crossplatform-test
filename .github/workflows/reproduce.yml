@@ -1,0 +1,169 @@
+name: Reproduce
+
+# Protects one trivial library on Windows with four NecroBit option
+# combinations, then loads each result on Windows, Linux and macOS under a
+# .NET 10 host. Everything runs on stock GitHub-hosted runners.
+#
+# A .NET Reactor licence is required to protect. Set the repository secret
+# REACTOR_LICENSE to the contents of your licence file. Without it the
+# protect job cannot run.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  protect:
+    name: Protect variants (windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            10.0.x
+            8.0.x
+
+      - name: Build the library
+        run: dotnet build src/HelloReactor/HelloReactor.csproj -c Release
+
+      - name: Install .NET Reactor
+        uses: eziriz/dotnet-reactor-install-action@v1
+        with:
+          license: ${{ secrets.REACTOR_LICENSE }}
+
+      - name: Protect one copy per option combination
+        run: |
+          set -euo pipefail
+          # v1 mirrors our production configuration.
+          # v2..v4 vary one option at a time.
+          declare -A VARIANTS=(
+            [v1_necrobit_comp_on]="-necrobit 1 -necrobit_comp 1 -compression 1"
+            [v2_necrobit_comp_off]="-necrobit 1 -necrobit_comp 0 -compression 1"
+            [v3_no_compression]="-necrobit 1 -necrobit_comp 1 -compression 0"
+            [v4_necrobit_alone]="-necrobit 1 -necrobit_comp 0 -compression 0"
+          )
+          for tfm in net10.0 net8.0; do
+            src="src/HelloReactor/bin/Release/$tfm/HelloReactor.dll"
+            [ -f "$src" ] || { echo "::error::missing $src"; exit 1; }
+            for name in "${!VARIANTS[@]}"; do
+              out="variants/$tfm/$name"
+              mkdir -p "$out"
+              cp "$src" "$out/HelloReactor.dll"
+              echo "=== $tfm / $name : ${VARIANTS[$name]}"
+              "$DOTNETREACTORROOT/dotNET_Reactor.Console.exe" \
+                -file "$(cygpath -w "$PWD/$out/HelloReactor.dll")" \
+                ${VARIANTS[$name]} -embed 0 -obfuscation 0 -stringencryption 0 \
+                -targetfile "$(cygpath -w "$PWD/$out/HelloReactor.dll")" \
+                || { echo "::error::$tfm/$name: Reactor exit $?"; exit 1; }
+            done
+            # An unprotected copy is the control. If it ever fails to load, the
+            # harness is broken and no other row means anything.
+            mkdir -p "variants/$tfm/v0_unprotected"
+            cp "$src" "variants/$tfm/v0_unprotected/HelloReactor.dll"
+          done
+
+      - name: Confirm each variant really was protected
+        run: |
+          set -euo pipefail
+          dotnet tool install -g ilspycmd >/dev/null 2>&1 || true
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          # NecroBit leaves a large number of [MethodImpl(NoInlining)] stubs
+          # behind. Count them; do NOT normalise by line count, because
+          # obfuscation ADDS decompiled text and a ratio runs backwards.
+          fail=0
+          for d in variants/*/*/; do
+            n=$(ilspycmd "$d/HelloReactor.dll" 2>/dev/null </dev/null \
+                | grep -c 'MethodImplOptions.NoInlining' || true)
+            echo "$d stubs=$n"
+            case "$d" in
+              *v0_unprotected*) [ "$n" -eq 0 ] || { echo "::error::$d control is not clean"; fail=1; } ;;
+              *) [ "$n" -gt 5 ] || { echo "::error::$d did NOT get protected (stubs=$n)"; fail=1; } ;;
+            esac
+          done
+          [ "$fail" -eq 0 ] || exit 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: variants
+          path: variants/
+
+  probe:
+    name: Load on ${{ matrix.os }}
+    needs: protect
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Environment
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then sw_vers; else uname -a || true; fi
+          uname -m || true
+          dotnet --info | head -20
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: variants
+          path: variants
+
+      - name: Build probe
+        run: dotnet build src/Probe/Probe.csproj -c Release -f net10.0
+
+      - name: Load every variant
+        run: |
+          set +e
+          PROBE="src/Probe/bin/Release/net10.0/probe"
+          [ "$RUNNER_OS" = "Windows" ] && PROBE="$PROBE.exe"
+          : > results.txt
+          for d in variants/*/*/; do
+            echo ""
+            echo "================ $d ================"
+            "$PROBE" "$d/HelloReactor.dll"
+            rc=$?
+            case $rc in
+              0) v="PASS" ;;
+              3) v="INCONCLUSIVE" ;;
+              *) v="CRASH(rc=$rc)" ;;
+            esac
+            echo "-> $d $v"
+            echo "$d|$v" >> results.txt
+          done
+          exit 0
+
+      - name: Summary
+        run: |
+          set -euo pipefail
+          echo "## ${{ matrix.os }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| variant | result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          while IFS='|' read -r d v; do echo "| \`$d\` | $v |" >> "$GITHUB_STEP_SUMMARY"; done < results.txt
+          cat results.txt
+          # The unprotected control must load everywhere, or nothing is interpretable.
+          if grep -q '^variants/.*v0_unprotected.*|CRASH' results.txt; then
+            echo "::error::unprotected control crashed — harness is broken"
+            exit 1
+          fi
