@@ -4,8 +4,8 @@ name: Reproduce
 # combinations, then loads each result on Windows, Linux and macOS under a
 # .NET 10 host. Everything runs on stock GitHub-hosted runners.
 #
-# A .NET Reactor licence is required to protect. Set the repository secret
-# REACTOR_LICENSE to the contents of your licence file. Without it the
+# A .NET Reactor licence is required to protect. Provide your licence as the
+# secret DOTNET_REACTOR_LICENSE. Without it the
 # protect job cannot run.
 
 on:
@@ -42,7 +42,12 @@ jobs:
       - name: Install .NET Reactor
         uses: eziriz/dotnet-reactor-install-action@v1
         with:
-          license: ${{ secrets.REACTOR_LICENSE }}
+          # `version` is required; the action rejects 'latest'.
+          version: '7.5.0.0'
+          license: ${{ secrets.DOTNET_REACTOR_LICENSE }}
+
+      - name: Convert DOTNETREACTORROOT to a Windows path
+        run: echo "DOTNETREACTORROOT=$(cygpath -w "$DOTNETREACTORROOT")" >> $GITHUB_ENV
 
       - name: Protect one copy per option combination
         run: |
@@ -63,7 +68,7 @@ jobs:
               mkdir -p "$out"
               cp "$src" "$out/HelloReactor.dll"
               echo "=== $tfm / $name : ${VARIANTS[$name]}"
-              "$DOTNETREACTORROOT/dotNET_Reactor.Console.exe" \
+              "$(cygpath -u "$DOTNETREACTORROOT")/dotNET_Reactor.Console.exe" \
                 -file "$(cygpath -w "$PWD/$out/HelloReactor.dll")" \
                 ${VARIANTS[$name]} -embed 0 -obfuscation 0 -stringencryption 0 \
                 -targetfile "$(cygpath -w "$PWD/$out/HelloReactor.dll")" \

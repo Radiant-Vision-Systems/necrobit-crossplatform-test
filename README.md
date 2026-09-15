@@ -50,7 +50,7 @@ A `netstandard2.1` build behaves identically. So the assembly's target framework
 
 ## Running it
 
-Set a repository secret `REACTOR_LICENSE` containing your .NET Reactor licence, then run the **Reproduce** workflow. It protects the library on `windows-latest` and loads every variant on `ubuntu-latest`, `macos-latest` and `windows-latest`.
+Set a repository secret `DOTNET_REACTOR_LICENSE` containing your .NET Reactor licence, then run the **Reproduce** workflow. It protects the library on `windows-latest` and loads every variant on `ubuntu-latest`, `macos-latest` and `windows-latest`.
 
 The workflow fails loudly rather than reporting a false pass:
 
