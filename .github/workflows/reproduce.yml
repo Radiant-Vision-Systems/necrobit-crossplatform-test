@@ -106,13 +106,16 @@ jobs:
           path: variants/
 
   probe:
-    name: Load on ${{ matrix.os }}
+    name: Load on ${{ matrix.os }} (host ${{ matrix.host }})
     needs: protect
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        # BOTH hosts: the central finding is that the RUNTIME decides, not the
+        # assembly's target framework. A net10-only matrix cannot show that.
+        host: [net10.0, net8.0]
     defaults:
       run:
         shell: bash
@@ -121,7 +124,9 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: |
+            10.0.x
+            8.0.x
 
       - name: Environment
         run: |
@@ -135,12 +140,12 @@ jobs:
           path: variants
 
       - name: Build probe
-        run: dotnet build src/Probe/Probe.csproj -c Release -f net10.0
+        run: dotnet build src/Probe/Probe.csproj -c Release -f ${{ matrix.host }}
 
       - name: Load every variant
         run: |
           set +e
-          PROBE="src/Probe/bin/Release/net10.0/probe"
+          PROBE="src/Probe/bin/Release/${{ matrix.host }}/probe"
           [ "$RUNNER_OS" = "Windows" ] && PROBE="$PROBE.exe"
           : > results.txt
           for d in variants/*/*/; do
@@ -161,7 +166,7 @@ jobs:
       - name: Summary
         run: |
           set -euo pipefail
-          echo "## ${{ matrix.os }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "## ${{ matrix.os }} — host ${{ matrix.host }}" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| variant | result |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"

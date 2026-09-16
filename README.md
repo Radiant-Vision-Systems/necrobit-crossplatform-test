@@ -42,6 +42,10 @@ The same protected `net8.0` assembly:
 
 A `netstandard2.1` build behaves identically. So the assembly's target framework is not the variable — the runtime executing it is. Retargeting a library therefore does not avoid the problem, because the consuming application chooses the runtime.
 
+The workflow probes every variant under **both** a .NET 10 and a .NET 8 host for exactly this reason. Note that the results table above is measured under a **.NET 10** host, which is why the `net8.0` column of the matrix crashes on macOS: the assembly targets net8.0 but the process running it is .NET 10.
+
+Full disclosure on provenance: the .NET 8 host row was first established against one of our own internal packages, before this repository existed. The published run history here covered a .NET 10 host only; the `host` matrix was added so that a run of this repository demonstrates it too.
+
 ## Ruled out
 
 - **Tiered compilation.** `DOTNET_TieredCompilation=0`, `DOTNET_TieredPGO=0` and `DOTNET_ReadyToRun=0` each make no difference. (Checked because [dotnet/runtime#132627](https://github.com/dotnet/runtime/issues/132627) reports an unrelated macOS 26 / ARM64 JIT fault that *is* suppressed by that setting.)
